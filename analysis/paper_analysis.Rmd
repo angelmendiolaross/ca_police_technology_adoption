@@ -1,0 +1,746 @@
+---
+title: "Politics of Police Technology Adoption Analysis"
+output: html_document
+date: "2025-10-08"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_knit$set(root.dir = '/Users/angelmr/Dropbox/Smart_City_Policing/')
+```
+
+
+```{r, include=FALSE}
+### Clear global environment
+rm(list=ls())
+
+library(pacman)
+pacman::p_unload(all)
+
+pacman::p_load(
+  tidyverse, #dplyr, readr, etc.
+  magrittr, #%<>% operator
+  ggthemes, #for pretty charts
+  readxl, #read excel
+  ggplot2 #plotting
+)
+```
+
+The purpose of this script is to run the final regressions for each quadrant/technology with robustness checks.
+
+```{r, include=FALSE}
+# load the data
+load("clean_data/aos_dvs.RData") # Atlas of Surveillance data
+load("clean_data/ivs_final.RData") # independent variables
+```
+
+
+```{r, include=FALSE}
+# computing civilian-employee ratio
+
+# checking where civilian employee is negative (eg where total employees<sworn_officers)
+ivs_final %>%
+  filter(year==2018 & total_employees<sworn_officers) %>%
+  select(City,total_employees,civilian_employees,sworn_officers)
+
+ivs_final %<>%
+  mutate(civ_emp_ratio = civilian_employees/total_employees)
+```
+
+## 0.0 Descriptive Data of Sample
+
+```{r}
+# number of cities in CA: 482
+total_mun <- ivs_final %>% subset(year==2019) %>% nrow()
+
+# number of cities with more than 5,000 people: 428
+ivs_final %>% subset(year==2019 & total_pop>5000) %>% nrow()
+
+# merging combined df
+df <- left_join(
+                  x = aos_dvs,
+                  y = ivs_final,
+                  by = "City")
+
+# checking for join errors - NONE
+df %>% subset(is.na(stplcname) & year==2019) %>%
+  select(City,stplcname,total_pop)
+
+# 20% of cities adopted body-worn-cameras, and 44% have adopted automatic license plate reader systems. Moreover, there is only an 31% overlap between the municipalities that have adopted either one.
+df %>% subset(year==2019 & BWC == 1) # 97
+df %>% subset(year==2019 & ALPR == 1) # 211
+df %>% subset(year==2019 & ALPR == 1 & BWC == 1) # 73
+df %>% subset(year==2019) %>% subset(ALPR == 1 | BWC == 1) # 235
+
+# percent Republican quick info
+df %>% subset(year==2019 & pvoteRepub>.5) # 89 Majority-Republican cities
+
+# identifying cities outside of sample parameters (e.g., those that contract out police services)
+df %>% subset(year==2018 & contract_county==1) # 154 cities
+df %>% subset(year==2018 & total_pop<5000) # 54
+
+# identifying total number of cities in sample:
+df %>% subset(year==2018 & contract_county==0 & total_pop>2500)
+```
+
+
+## 1.0 Technologies that May Increase Police Power
+
+Here we look at the following technologies:  
+1. ALPR (cities adopted: 215)
+2. Drones (cities adopted: 84)
+
+```{r, include=FALSE}
+# reducing to data just for 2018 (most recent year with full data for IVs)
+df %<>%
+  filter(year==2018)
+
+df <- df[c(1,56,2:20,22,24,25:28,30,34,39,40,41,42,45:48,49,50:51,57)]
+
+# reducing to cities with their own police force: now 328 obs
+df %<>%
+  filter(contract_county==0)
+
+# reducing to cities with populations >= 2,500, now 316 obs
+df %<>%
+  subset(total_pop>2500)
+
+# now reducing to places where civilian-total employees are non-negative (eg dropping likely admin errors)
+# checking first
+df %>% filter(civ_emp_ratio<0) %>%
+  select(City,civ_emp_ratio,total_pop,ALPR:video_analytics) %>% 
+  arrange(desc(total_pop))
+# it's a diverse mix of cities from medium sized places like Oxnard and Inglewood to very small
+# cities like Atherton and Alturas
+
+# dropping these because it's impossible for total police employees to be < sworn offichers, now 279 obs
+df %<>% filter(civ_emp_ratio>=0)
+
+
+# checking correlations of covariates
+cor(df$mean_violent_crime, df$mean_prop_crime, use = "pairwise.complete.obs") 
+cor(df$total_pop, df$sworn_officers, use = "pairwise.complete.obs") # ONLY CONCERN: 0.97
+cor(df$pop_density, df$sworn_officers, use = "pairwise.complete.obs") 
+cor(df$police_infl_adj_per_cap, df$sworn_officers, use = "pairwise.complete.obs") 
+cor(df$prenter, df$ppov100, use = "pairwise.complete.obs")
+cor(df$pnhb, df$diff_pnhb, use = "pairwise.complete.obs") 
+```
+
+### Automated License Plate Readers (ALPRs) models
+
+```{r}
+# install.packages("broom")
+library(broom)
+
+# without institutional variables or controls
+m1 <- lm(ALPR ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+summary(m1)
+
+# with institutional variables + no controls
+m2 <- lm(ALPR ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+summary(m2)
+
+# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
+ols <- lm(ALPR ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+summary(ols)
+
+logit <- glm(ALPR ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df, family = "binomial")
+summary(logit)
+
+# exponentiate coefficients to get odds ratios
+tidy_output <- tidy(logit, exponentiate = TRUE)
+# Print the tidy output
+print(tidy_output)
+```
+Coefficient plots
+```{r}
+#install.packages("dotwhisker")
+library(dotwhisker)
+
+# regression compatible with tidy
+m1_df <- broom::tidy(m1)
+m2_df <- broom::tidy(m2)
+ols_df <- broom::tidy(ols)
+
+# preparing to plot
+m1_df <-
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+m2_df <-
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+ols_df <-
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+
+three_models <- rbind(ols_df,m2_df,m1_df)
+
+library(RColorBrewer)
+# Select a 3-color palette from ColorBrewer (black to white)
+bw_colors <-c("#000000", "#969696", "#d9d9d9")
+
+dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>% 
+  relabel_predictors( c(pvoteRepub = "Percent Republican",
+                     pnhb = "Percent Black",
+                     phis = "Percent Latino",
+                     `log(mean_violent_crime)` = "Violent Crime (logged)",
+                     `log(mean_prop_crime)` = "Property Crime (logged)",
+                     `log(pop_density)` = "Population Density (logged)",
+                     `log(sworn_officers)` = "Sworn Officers (logged)",
+                     `civ_emp_ratio` = "Share of Civilian Employees",
+                     `log(police_infl_adj_per_cap)` = "Police Spending Per Capita (logged)")
+                     ) +
+  ggtitle("ALPR Adoption") +
+  theme_bw() +
+  scale_color_manual(values = bw_colors)  # Custom colors for the plot
+```
+
+### Drones models
+
+```{r}
+# without institutional variables or controls
+m1 <- lm(drones ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+summary(m1)
+
+# with institutional variables + no controls
+m2 <- lm(drones ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+summary(m2)
+
+# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
+ols <- lm(drones ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+summary(ols)
+
+# logit model
+logit <- glm(drones ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df, family = "binomial")
+summary(logit)
+# exponentiate coefficients to get odds ratios
+tidy_output <- tidy(logit, exponentiate = TRUE)
+# Print the tidy output
+print(tidy_output)
+
+# preparing to plot
+m1_df <-
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1")
+m2_df <-
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with size variables)")
+ols_df <-
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+
+three_models <- rbind(ols_df,m2_df,m1_df)
+
+dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>% 
+  relabel_predictors( c(pvoteRepub = "Percent Republican",
+                     pnhb = "Percent Black",
+                     phis = "Percent Latino",
+                     `log(mean_violent_crime)` = "Violent Crime (logged)",
+                     `log(mean_prop_crime)` = "Property Crime (logged)",
+                     `log(pop_density)` = "Population Density (logged)",
+                     `log(sworn_officers)` = "Sworn Officers (logged)",
+                     `civ_emp_ratio` = "Share of Civilian Employees",
+                     `log(police_infl_adj_per_cap)` = "Police Spending Per Capita (logged)")
+                     ) +
+  ggtitle("Drones Adoption") +
+  theme_bw() +
+  scale_color_manual(values = bw_colors)  # Custom colors for the plot
+```
+
+## 2.0 Technologies for Information Exchange
+
+Here we examine the following technologies: 
+1. Ring/Neighbors partnership (cities adopted: 123)   
+2. Camera registry (cities adopted: 66)  
+3. Crime mapping (cities adopted: 110)
+4. Nixle (cities adopted: 128) 
+**Note**: if we only count those cities with at least 10 posts in 2020, Nixle adoption is 84 cities.   
+
+### Ring partnerships
+
+```{r}
+# without institutional variables or controls
+m1 <- lm(ring ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+summary(m1)
+
+# with institutional variables + no controls
+m2 <- lm(ring ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+summary(m2)
+
+# final models
+ols <- lm(ring ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+summary(ols)
+
+# logit
+logit <- glm(ring ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = subset(df), family = "binomial")
+summary(logit)
+# exponentiate coefficients to get odds ratios
+tidy_output <- tidy(logit, exponentiate = TRUE)
+# Print the tidy output
+print(tidy_output)
+
+# preparing to plot
+m1_df <-
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+m2_df <-
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+ols_df <-
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+
+three_models <- rbind(ols_df,m2_df,m1_df)
+
+dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>% 
+  relabel_predictors( c(pvoteRepub = "Percent Republican",
+                     pnhb = "Percent Black",
+                     phis = "Percent Latino",
+                     `log(mean_violent_crime)` = "Violent Crime (logged)",
+                     `log(mean_prop_crime)` = "Property Crime (logged)",
+                     `log(pop_density)` = "Population Density (logged)",
+                     `log(sworn_officers)` = "Sworn Officers (logged)",
+                     `civ_emp_ratio` = "Share of Civilian Employees",
+                     `log(police_infl_adj_per_cap)` = "Police Spending Per Capita (logged)")
+                     ) +
+  ggtitle("Ring-Neighbors Partnership") +
+  theme_bw() +
+  scale_color_manual(values = bw_colors)  # Custom colors for the plot
+
+```
+
+### Camera registry
+
+```{r, echo=FALSE}
+# without institutional variables or controls
+m1 <- lm(cam_registry ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+summary(m1)
+
+# with institutional variables + no controls
+m2 <- lm(cam_registry ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+summary(m2)
+
+# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
+ols <- lm(cam_registry ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+summary(ols)
+
+# logit
+logit <- glm(cam_registry ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + log(pop_density) + gini, data = df, family = "binomial")
+summary(logit)
+# exponentiate coefficients to get odds ratios
+tidy_output <- tidy(logit, exponentiate = TRUE)
+# Print the tidy output
+print(tidy_output)
+
+
+m1_df <-
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+m2_df <-
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+ols_df <-
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+
+three_models <- rbind(ols_df,m2_df,m1_df)
+
+dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>% 
+  relabel_predictors( c(pvoteRepub = "Percent Republican",
+                     pnhb = "Percent Black",
+                     phis = "Percent Latino",
+                     `log(mean_violent_crime)` = "Violent Crime (logged)",
+                     `log(mean_prop_crime)` = "Property Crime (logged)",
+                     `log(pop_density)` = "Population Density (logged)",
+                     `log(sworn_officers)` = "Sworn Officers (logged)",
+                     `civ_emp_ratio` = "Share of Civilian Employees",
+                     `log(police_infl_adj_per_cap)` = "Police Spending Per Capita (logged)")
+                     ) +
+  ggtitle("Camera Registry") +
+  theme_bw() +
+  scale_color_manual(values = bw_colors)  # Custom colors for the plot
+```
+    
+### Crime Mapping
+
+```{r, include=FALSE}
+# loading crime mapping data
+crime_map <- read_xlsx("crime_mapping/crime_mapping_2020-11-15-005048.xlsx")
+
+# getting the city name only
+crime_map %<>%
+  mutate(City = str_split(Departments, " Police", simplify = TRUE)[, 1],
+         City = str_split(City, " Department", simplify = TRUE)[, 1],)
+
+crime_map %<>% rename(crime_map = `Crime Mapping`,
+                      comm_map = `Community Mapping`)
+
+# prepping for join by City -- fixing some names
+crime_map %<>%
+  mutate(City = ifelse(City=="Paso Robles", "El Paso de Robles (Paso Robles)", City),
+         City = ifelse(City=="Ventura", "San Buenaventura (Ventura)", City),
+         City = ifelse(City=="Saint Helena", "St. Helena", City),
+         crime_mapping = ifelse(comm_map==1 | crime_map==1, 1, 0))
+
+crime_map <- crime_map[c(5,6)]
+
+# joining
+df <- left_join(x = df,
+                     y = crime_map,
+                     by = "City")
+
+# reassigning NAs as 0
+df %<>%
+  mutate(crime_mapping = ifelse(is.na(crime_mapping),0,crime_mapping))
+
+# without institutional variables or controls
+m1 <- lm(crime_mapping ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+summary(m1)
+
+# with institutional variables + no controls
+m2 <- lm(crime_mapping ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+summary(m2)
+
+# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
+ols <- lm(crime_mapping ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+summary(ols)
+
+# logit
+logit <- glm(crime_mapping ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df, family = "binomial")
+summary(logit)
+
+# exponentiate coefficients to get odds ratios
+tidy_output <- tidy(logit, exponentiate = TRUE)
+# Print the tidy output
+print(tidy_output)
+
+
+# plotting
+m1_df <-
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+m2_df <-
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+ols_df <-
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+
+three_models <- rbind(ols_df,m2_df,m1_df)
+
+dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>% 
+  relabel_predictors( c(pvoteRepub = "Percent Republican",
+                     pnhb = "Percent Black",
+                     phis = "Percent Latino",
+                     `log(mean_violent_crime)` = "Violent Crime (logged)",
+                     `log(mean_prop_crime)` = "Property Crime (logged)",
+                     `log(pop_density)` = "Population Density (logged)",
+                     `log(sworn_officers)` = "Sworn Officers (logged)",
+                     `civ_emp_ratio` = "Share of Civilian Employees",
+                     `log(police_infl_adj_per_cap)` = "Police Spending Per Capita (logged)")
+                     ) +
+  ggtitle("Crime Mapping") +
+  theme_bw() +
+  scale_color_manual(values = bw_colors)  # Custom colors for the plot
+```
+
+### Nixle
+
+```{r, include=FALSE}
+# downloading nixle data
+nixle <- read_xlsx("nixle/police_reformat.xlsx")
+
+# looking at Total averages by year
+nixle %>%
+  group_by(Year) %>%
+  summarise(Total = mean(Total),
+            num_cities_zero = sum(Total==0))
+nixle %>%
+  group_by(Year) %>%
+  summarise(num_cities_zero = sum(Total==0))
+
+# getting the city name only
+nixle %<>%
+  mutate(City = str_split(Department, " Police", simplify = TRUE)[, 1],
+         City = str_split(City, " Department", simplify = TRUE)[, 1],)
+
+# limiting to 2020
+nixle %<>%
+  subset(Year==2020)
+
+nixle <- nixle[c(8,6,3:5)]
+
+# creating new simple adoption category AND adoption if total>=10 posts
+nixle %<>%
+  mutate(nixle = ifelse(is.na(Total),0,1),
+         nixle_10pls = ifelse(Total>=10,1,0),
+         nixle_10pls = ifelse(is.na(nixle_10pls),0,nixle_10pls))
+
+# joining with rest of the data
+df <- left_join(x = df,
+                     y = nixle,
+                     by = "City")
+
+# assigning missing as 0
+df %<>%
+  mutate(nixle = ifelse(is.na(nixle),0,nixle),
+         nixle_10pls = ifelse(is.na(nixle_10pls),0,nixle_10pls))
+
+# without institutional variables or controls
+m1 <- lm(nixle ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+summary(m1)
+
+# with institutional variables + no controls
+m2 <- lm(nixle ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+summary(m2)
+
+# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
+ols <- lm(nixle ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+summary(ols)
+
+
+# logit
+logit <- glm(nixle ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + log(pop_density) + gini, data = df, family = "binomial")
+summary(logit)
+# exponentiate coefficients to get odds ratios
+tidy_output <- tidy(logit, exponentiate = TRUE)
+# Print the tidy output
+print(tidy_output)
+
+
+# plotting
+m1_df <-
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+m2_df <-
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+ols_df <-
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+
+three_models <- rbind(ols_df,m2_df,m1_df)
+
+dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>% 
+  relabel_predictors( c(pvoteRepub = "Percent Republican",
+                     pnhb = "Percent Black",
+                     phis = "Percent Latino",
+                     `log(mean_violent_crime)` = "Violent Crime (logged)",
+                     `log(mean_prop_crime)` = "Property Crime (logged)",
+                     `log(pop_density)` = "Population Density (logged)",
+                     `log(sworn_officers)` = "Sworn Officers (logged)",
+                     `civ_emp_ratio` = "Share of Civilian Employees",
+                     `log(police_infl_adj_per_cap)` = "Police Spending Per Capita (logged)")
+                     ) +
+  ggtitle("Nixle") +
+  theme_bw() +
+  scale_color_manual(values = bw_colors)  # Custom colors for the plot
+```
+
+## 3.0 Technologies that Theoretically Constrain Police
+
+Here we look at:
+Body-worn cameras (cities adopted: 109)
+
+### Body-worn Cameras
+
+```{r}
+# without institutional variables or controls
+m1 <- lm(BWC ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + complaints_per_1000 + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+summary(m1)
+
+# with institutional variables + no controls
+m2 <- lm(BWC ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + complaints_per_1000 + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+summary(m2)
+
+# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
+ols <- lm(BWC ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + complaints_per_1000 + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+summary(ols)
+
+# logit
+logit <- glm(BWC ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + complaints_per_1000 + log(mean_violent_crime) + log(mean_prop_crime) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + log(pop_density) + gini, data = df, family = "binomial")
+summary(logit)
+# exponentiate coefficients to get odds ratios
+tidy_output <- tidy(logit, exponentiate = TRUE)
+# Print the tidy output
+print(tidy_output)
+
+# plotting
+m1_df <-
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "diff_pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 1")
+m2_df <-
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "diff_pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(sworn_officers)")) %>% mutate(model = "Model 2")
+ols_df <-
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "diff_pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(sworn_officers)")) %>% mutate(model = "Model 3")
+
+three_models <- rbind(ols_df,m2_df,m1_df)
+
+dwplot(three_models, vline = geom_vline(xintercept = 0)) %>% 
+  relabel_predictors( c(pvoteRepub = "Percent Republican",
+                     diff_pnhb = "Change in Percent Black",
+                     phis = "Percent Latino",
+                     `log(mean_violent_crime)` = "Violent Crime (logged)",
+                     `log(mean_prop_crime)` = "Property Crime (logged)",
+                     `log(sworn_officers)` = "Sworn Officers (logged)")
+                     ) +
+  ggtitle("Body-worn Cameras") +
+  theme_bw() +
+  scale_color_manual(values = bw_colors)  # Custom colors for the plot
+
+# median sworn officers in Pyo (2022) was 340 (our median is 52) - "large departments" are above this threshold
+# our sample then only has 10 "large departments"
+median(bwc$sworn_officers)
+quantile(bwc$sworn_officers)
+```
+Note: Complaints per 1,000 residents is not significant.
+
+
+## ROBUSTNESS CHECKS
+
+```{r}
+# creating summary composite measure of all DVs
+cities_2019 <- ivs_final %>% filter(year==2019 & total_pop>2500 & contract_county==0) %>% select(fips,City)
+
+# atlas data plus crime mapping and nixle data
+cities_2019 <- cities_2019 %>%
+  left_join(aos_dvs, by = "City") %>%
+  left_join(crime_map, by = "City") %>%
+  left_join(nixle, by = "City")
+
+cities_2019 <- cities_2019[c(1,3:5,7,12,14,19)]
+
+cities_2019 %<>%
+  mutate(crime_mapping = ifelse(is.na(crime_mapping),0,crime_mapping),
+         nixle = ifelse(is.na(nixle), 0, nixle))
+
+## BELOW I
+## construct a summary index using the standardized inverse-covariance 
+## weighted average of indicators
+
+# Calculate the covariance matrix for indicator variables
+cov_matrix <- cov(cities_2019[, -1])
+
+# Calculate the inverse covariance matrix
+inv_cov_matrix <- solve(cov_matrix)
+
+# Extract weights from the inverse covariance matrix
+weights <- diag(inv_cov_matrix)
+
+# Standardize weights
+standardized_weights <- weights / sum(weights)
+
+# Calculate the weighted average
+summary_variable <- as.vector(as.matrix(cities_2019[, c("ALPR", "BWC", "cam_registry", "drones", "ring", "crime_mapping", "nixle")]) %*% standardized_weights)
+
+# Add the summary variable to the data frame
+cities_2019$summary_variable <- summary_variable
+
+# getting the rest of the IVs
+ivs <- ivs_final %>% filter(year==2018) %>%
+  select(fips, City, total_pop, pvoteRepub, pnhb,diff_pnhb,phis, diff_phis, mean_violent_crime, mean_prop_crime, sworn_officers, civ_emp_ratio, police_infl_adj_per_cap, prenter, med_hh_inc_infl_adj, pnonmovers, pop_density, gini)
+
+# now joining with IVs and redoing regression
+df_final <- left_join(x = cities_2019, y = ivs, by = "fips")
+
+# getting complete cases
+rows_before <- nrow(df_final) # 315
+# Remove rows with NAs
+df_final <- df_final[complete.cases(df_final), ] # now 314
+# Determine the number of rows dropped
+rows_dropped <- rows_before - nrow(df_final) # 1
+
+df_final <- df_final %>% subset(civ_emp_ratio>=0 & total_pop>2500) # now 277
+
+ols <- lm(summary_variable ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + log(pop_density) + gini, data = df_final)
+summary(ols)
+
+```
+
+## SPATIAL ANALYSIS
+
+```{r}
+library(tidycensus)
+library(tigris)
+library(sf)
+
+ca_places <- places(state = "CA", cb = TRUE, year = 2020, class = "sf")
+
+ca_places %<>%
+  filter(!grepl(" CDP$", NAMELSAD))
+
+#install.packages("spdep")
+# Load necessary packages
+library(spdep)
+library(sf)
+
+# check CRS
+st_crs(ca_places)
+# "EPSG",4269 - units are decimal degrees so 0.271 = 18.7 miles / 30 km
+
+# Reproject to California Albers (EPSG:3310) to have accurate distances
+ca_places_proj <- st_transform(ca_places, crs = 3310)
+
+# Step 1: Get the coordinates of the place centroids
+coords <- st_coordinates(st_centroid(st_geometry(ca_places_proj)))
+
+# Step 2: Compute pairwise distances between all centroids
+dist_matrix <- dist(coords)
+
+# Step 3: Define a threshold based on the distance to the nearest neighbor
+nearest_neighbor_distances <- apply(dist_matrix, 1, function(x) min(x[x > 0]))  # Minimum distance to any other point
+
+# plotting
+hist(nearest_neighbor_distances, breaks = 30, main = "Distribution of Nearest Neighbor Distances", xlab = "Distance (meters)")
+
+# Step 4: Define the maximum distance (here the 80th percentile) to define the adaptive distance band
+max_distance <- quantile(nearest_neighbor_distances, 0.8)
+
+# Step 5: Create the adaptive neighbors using the dnearneigh function
+neighbors <- dnearneigh(coords, 0, max_distance)  # Define neighbors within the adaptive band
+
+# Step 6: Convert to listw format for spatial analysis
+weights <- nb2listw(neighbors, style = "W", zero.policy = TRUE)
+
+# merging with aos_data
+test <- ca_places_proj %>%
+  left_join(aos_dvs, by = c("NAME" = "City")) %>%
+  left_join(crime_map, by = c("NAME" = "City")) %>%
+  left_join(nixle, by = c("NAME" = "City"))
+
+test %<>%
+  mutate(crime_mapping = ifelse(is.na(crime_mapping),0,crime_mapping),
+         nixle = ifelse(is.na(nixle), 0, nixle))
+
+# test whether adoption is spatially clustered for each technology
+moran_test <- moran.test(test$ALPR, weights, zero.policy = TRUE)
+print(moran_test)
+
+moran_test <- moran.test(test$drones, weights, zero.policy = TRUE)
+print(moran_test)
+
+moran_test <- moran.test(test$BWC, weights, zero.policy = TRUE)
+print(moran_test)
+
+moran_test <- moran.test(test$cam_registry, weights, zero.policy = TRUE)
+print(moran_test)
+
+moran_test <- moran.test(test$crime_mapping, weights, zero.policy = TRUE)
+print(moran_test)
+
+moran_test <- moran.test(test$ring, weights, zero.policy = TRUE)
+print(moran_test)
+
+moran_test <- moran.test(test$nixle, weights, zero.policy = TRUE)
+print(moran_test)
+
+## LOOKING AT BWC CLUSTERS
+# local moran i
+local_moran <- localmoran(test$BWC, weights, zero.policy = TRUE)
+summary(local_moran)
+test$local_I <- local_moran[,1]
+test$local_p <- local_moran[,5]
+
+# plotting
+#install.packages("tmap")
+library(tmap)
+
+tm_shape(test) +
+  tm_fill("local_I", style = "quantile", palette = "RdBu", title = "Local Moran's I") +
+  tm_borders()
+
+# Add local Moran's I results to spatial data
+test$Ii <- local_moran[, "Ii"]
+test$Z.Ii <- local_moran[, "Z.Ii"]
+test$pval <- local_moran[, "Pr(z != E(Ii))"]
+
+# View top cities with highest local Moran's I (indicating strong clustering)
+top_clusters <- test %>%
+  st_drop_geometry() %>%  # Remove geometry for easy viewing
+  arrange(desc(Z.Ii)) %>%
+  select(NAMELSAD, BWC, Ii, Z.Ii, pval) %>%
+  filter(!is.na(Ii))
+```
