@@ -7,8 +7,7 @@ date: "2025-10-08"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
-knitr::opts_knit$set(root.dir = '/Users/angelmr/Dropbox/Smart_City_Policing/')
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 ```
 
 
@@ -32,8 +31,8 @@ The purpose of this script is to run the final regressions for each quadrant/tec
 
 ```{r, include=FALSE}
 # load the data
-load("clean_data/aos_dvs.RData") # Atlas of Surveillance data
-load("clean_data/ivs_final.RData") # independent variables
+load("../data/aos_dvs.RData") # Atlas of Surveillance data
+load("../data/ivs_final.RData") # independent variables
 ```
 
 
@@ -57,6 +56,9 @@ total_mun <- ivs_final %>% subset(year==2019) %>% nrow()
 
 # number of cities with more than 5,000 people: 428
 ivs_final %>% subset(year==2019 & total_pop>5000) %>% nrow()
+# number of cities with more than 2,500 people: 450
+ivs_final %>% subset(year==2019 & total_pop>2500) %>% nrow()
+
 
 # merging combined df
 df <- left_join(
@@ -134,19 +136,19 @@ cor(df$pnhb, df$diff_pnhb, use = "pairwise.complete.obs")
 # install.packages("broom")
 library(broom)
 
-# without institutional variables or controls
-m1 <- lm(ALPR ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+# partisanship and controls
+m1 <- lm(ALPR ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
 summary(m1)
 
-# with institutional variables + no controls
-m2 <- lm(ALPR ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+# with problem-driven account variables
+m2 <- lm(ALPR ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime), data = df)
 summary(m2)
 
-# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
-ols <- lm(ALPR ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+# adding institutional varibles 
+ols <- lm(ALPR ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
 summary(ols)
 
-logit <- glm(ALPR ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df, family = "binomial")
+logit <- glm(ALPR ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini, data = df, family = "binomial")
 summary(logit)
 
 # exponentiate coefficients to get odds ratios
@@ -165,12 +167,17 @@ m2_df <- broom::tidy(m2)
 ols_df <- broom::tidy(ols)
 
 # preparing to plot
+# model 1: partisanship measure alongside our control variables
 m1_df <-
-    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub")) %>% mutate(model = "Model 1")
+
+# model 2: adds the problem-driven account variables: racial demographics and crime
 m2_df <-
-    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 2")
+
+# model 3: adds the police agency variables, including population density, the number of sworn officers, the share of civilian employees, and police spending
 ols_df <-
-    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3")
 
 three_models <- rbind(ols_df,m2_df,m1_df)
 
@@ -197,21 +204,21 @@ dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>%
 ### Drones models
 
 ```{r}
-# without institutional variables or controls
-m1 <- lm(drones ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+# partisanship and controls
+m1 <- lm(drones ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
 summary(m1)
 
-# with institutional variables + no controls
-m2 <- lm(drones ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+# with problem-driven account variables
+m2 <- lm(drones ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime), data = df)
 summary(m2)
 
-# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
-ols <- lm(drones ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+# adding institutional varibles 
+ols <- lm(drones ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
 summary(ols)
 
-# logit model
-logit <- glm(drones ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df, family = "binomial")
+logit <- glm(drones ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini, data = df, family = "binomial")
 summary(logit)
+
 # exponentiate coefficients to get odds ratios
 tidy_output <- tidy(logit, exponentiate = TRUE)
 # Print the tidy output
@@ -219,11 +226,12 @@ print(tidy_output)
 
 # preparing to plot
 m1_df <-
-    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1")
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub")) %>% mutate(model = "Model 1")
 m2_df <-
-    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with size variables)")
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 2")
 ols_df <-
-    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3")
+
 
 three_models <- rbind(ols_df,m2_df,m1_df)
 
@@ -256,19 +264,19 @@ Here we examine the following technologies:
 
 ```{r}
 # without institutional variables or controls
-m1 <- lm(ring ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+# partisanship and controls
+m1 <- lm(ring ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
 summary(m1)
 
-# with institutional variables + no controls
-m2 <- lm(ring ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+# with problem-driven account variables
+m2 <- lm(ring ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime), data = df)
 summary(m2)
 
-# final models
-ols <- lm(ring ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+# adding institutional varibles 
+ols <- lm(ring ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
 summary(ols)
 
-# logit
-logit <- glm(ring ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = subset(df), family = "binomial")
+logit <- glm(ring ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini, data = df, family = "binomial")
 summary(logit)
 # exponentiate coefficients to get odds ratios
 tidy_output <- tidy(logit, exponentiate = TRUE)
@@ -277,11 +285,11 @@ print(tidy_output)
 
 # preparing to plot
 m1_df <-
-    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub")) %>% mutate(model = "Model 1")
 m2_df <-
-    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 2")
 ols_df <-
-    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3")
 
 three_models <- rbind(ols_df,m2_df,m1_df)
 
@@ -305,33 +313,32 @@ dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>%
 ### Camera registry
 
 ```{r, echo=FALSE}
-# without institutional variables or controls
-m1 <- lm(cam_registry ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+# partisanship and controls
+m1 <- lm(cam_registry ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
 summary(m1)
 
-# with institutional variables + no controls
-m2 <- lm(cam_registry ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+# with problem-driven account variables
+m2 <- lm(cam_registry ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime), data = df)
 summary(m2)
 
-# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
-ols <- lm(cam_registry ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+# adding institutional varibles 
+ols <- lm(cam_registry ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
 summary(ols)
 
-# logit
-logit <- glm(cam_registry ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + log(pop_density) + gini, data = df, family = "binomial")
+logit <- glm(cam_registry ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini, data = df, family = "binomial")
 summary(logit)
 # exponentiate coefficients to get odds ratios
 tidy_output <- tidy(logit, exponentiate = TRUE)
 # Print the tidy output
 print(tidy_output)
 
-
+# preparing to plot
 m1_df <-
-    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub")) %>% mutate(model = "Model 1")
 m2_df <-
-    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 2")
 ols_df <-
-    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3")
 
 three_models <- rbind(ols_df,m2_df,m1_df)
 
@@ -355,7 +362,7 @@ dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>%
 
 ```{r, include=FALSE}
 # loading crime mapping data
-crime_map <- read_xlsx("crime_mapping/crime_mapping_2020-11-15-005048.xlsx")
+crime_map <- read_xlsx("../data/crime_mapping/crime_mapping_2020-11-15-005048.xlsx")
 
 # getting the city name only
 crime_map %<>%
@@ -383,35 +390,32 @@ df <- left_join(x = df,
 df %<>%
   mutate(crime_mapping = ifelse(is.na(crime_mapping),0,crime_mapping))
 
-# without institutional variables or controls
-m1 <- lm(crime_mapping ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+# partisanship and controls
+m1 <- lm(crime_mapping ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
 summary(m1)
 
-# with institutional variables + no controls
-m2 <- lm(crime_mapping ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+# with problem-driven account variables
+m2 <- lm(crime_mapping ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime), data = df)
 summary(m2)
 
-# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
-ols <- lm(crime_mapping ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+# adding institutional varibles 
+ols <- lm(crime_mapping ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
 summary(ols)
 
-# logit
-logit <- glm(crime_mapping ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df, family = "binomial")
+logit <- glm(crime_mapping ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini, data = df, family = "binomial")
 summary(logit)
-
 # exponentiate coefficients to get odds ratios
 tidy_output <- tidy(logit, exponentiate = TRUE)
 # Print the tidy output
 print(tidy_output)
 
-
-# plotting
+# preparing to plot
 m1_df <-
-    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub")) %>% mutate(model = "Model 1")
 m2_df <-
-    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 2")
 ols_df <-
-    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3")
 
 three_models <- rbind(ols_df,m2_df,m1_df)
 
@@ -435,7 +439,7 @@ dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>%
 
 ```{r, include=FALSE}
 # downloading nixle data
-nixle <- read_xlsx("nixle/police_reformat.xlsx")
+nixle <- read_xlsx("../data/nixle/police_reformat.xlsx")
 
 # looking at Total averages by year
 nixle %>%
@@ -473,35 +477,33 @@ df %<>%
   mutate(nixle = ifelse(is.na(nixle),0,nixle),
          nixle_10pls = ifelse(is.na(nixle_10pls),0,nixle_10pls))
 
-# without institutional variables or controls
-m1 <- lm(nixle ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+# partisanship and controls
+m1 <- lm(nixle ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
 summary(m1)
 
-# with institutional variables + no controls
-m2 <- lm(nixle ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+# with problem-driven account variables
+m2 <- lm(nixle ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime), data = df)
 summary(m2)
 
-# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
-ols <- lm(nixle ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+# adding institutional varibles 
+ols <- lm(nixle ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
 summary(ols)
 
-
-# logit
-logit <- glm(nixle ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + log(pop_density) + gini, data = df, family = "binomial")
+logit <- glm(nixle ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini, data = df, family = "binomial")
 summary(logit)
 # exponentiate coefficients to get odds ratios
 tidy_output <- tidy(logit, exponentiate = TRUE)
 # Print the tidy output
 print(tidy_output)
 
-
-# plotting
+# preparing to plot
 m1_df <-
-    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)")) %>% mutate(model = "Model 1 (political/demographic variables)")
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub")) %>% mutate(model = "Model 1")
 m2_df <-
-    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 2 (with agency variables)")
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 2")
 ols_df <-
-    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3 (all controls)")
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3")
+
 
 three_models <- rbind(ols_df,m2_df,m1_df)
 
@@ -529,55 +531,55 @@ Body-worn cameras (cities adopted: 109)
 ### Body-worn Cameras
 
 ```{r}
-# without institutional variables or controls
-m1 <- lm(BWC ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + complaints_per_1000 + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density), data = df)
+# partisanship and controls
+m1 <- lm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
 summary(m1)
 
-# with institutional variables + no controls
-m2 <- lm(BWC ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + complaints_per_1000 + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+# with problem-driven account variables
+m2 <- lm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime), data = df)
 summary(m2)
 
-# taking out complaints improves adjusted R2 as does swapping ppov with prenter and med ZHVI with med HH income 
-ols <- lm(BWC ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + complaints_per_1000 + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini, data = df)
+# adding institutional varibles 
+ols <- lm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
 summary(ols)
 
-# logit
-logit <- glm(BWC ~ pvoteRepub + pnhb + diff_pnhb + phis + diff_phis + complaints_per_1000 + log(mean_violent_crime) + log(mean_prop_crime) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + prenter + log(med_hh_inc_infl_adj) + pnonmovers + log(pop_density) + gini, data = df, family = "binomial")
+logit <- glm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini, data = df, family = "binomial")
 summary(logit)
 # exponentiate coefficients to get odds ratios
 tidy_output <- tidy(logit, exponentiate = TRUE)
 # Print the tidy output
 print(tidy_output)
 
-# plotting
+# preparing to plot
 m1_df <-
-    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub", "diff_pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 1")
+    broom::tidy(m1) %>% filter(term %in% c("pvoteRepub")) %>% mutate(model = "Model 1")
 m2_df <-
-    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "diff_pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(sworn_officers)")) %>% mutate(model = "Model 2")
+    broom::tidy(m2) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)")) %>% mutate(model = "Model 2")
 ols_df <-
-    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "diff_pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(sworn_officers)")) %>% mutate(model = "Model 3")
+    broom::tidy(ols) %>% filter(term %in% c("pvoteRepub", "pnhb", "phis", "log(mean_violent_crime)", "log(mean_prop_crime)", "log(pop_density)", "log(sworn_officers)", "civ_emp_ratio", "log(police_infl_adj_per_cap)")) %>% mutate(model = "Model 3")
 
 three_models <- rbind(ols_df,m2_df,m1_df)
 
-dwplot(three_models, vline = geom_vline(xintercept = 0)) %>% 
+dwplot(three_models,  vline = geom_vline(xintercept = 0)) %>% 
   relabel_predictors( c(pvoteRepub = "Percent Republican",
-                     diff_pnhb = "Change in Percent Black",
+                     pnhb = "Percent Black",
                      phis = "Percent Latino",
                      `log(mean_violent_crime)` = "Violent Crime (logged)",
                      `log(mean_prop_crime)` = "Property Crime (logged)",
-                     `log(sworn_officers)` = "Sworn Officers (logged)")
-                     ) +
+                     `log(pop_density)` = "Population Density (logged)",
+                     `log(sworn_officers)` = "Sworn Officers (logged)",
+                     `civ_emp_ratio` = "Share of Civilian Employees",
+                     `log(police_infl_adj_per_cap)` = "Police Spending Per Capita (logged)")
+                     )  +
   ggtitle("Body-worn Cameras") +
   theme_bw() +
   scale_color_manual(values = bw_colors)  # Custom colors for the plot
 
 # median sworn officers in Pyo (2022) was 340 (our median is 52) - "large departments" are above this threshold
 # our sample then only has 10 "large departments"
-median(bwc$sworn_officers)
-quantile(bwc$sworn_officers)
+quantile(df$sworn_officers)
 ```
 Note: Complaints per 1,000 residents is not significant.
-
 
 ## ROBUSTNESS CHECKS
 
