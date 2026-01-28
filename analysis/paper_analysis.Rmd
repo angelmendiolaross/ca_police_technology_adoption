@@ -70,14 +70,14 @@ df <- left_join(
 df %>% subset(is.na(stplcname) & year==2019) %>%
   select(City,stplcname,total_pop)
 
-# 20% of cities adopted body-worn-cameras, and 44% have adopted automatic license plate reader systems. Moreover, there is only an 31% overlap between the municipalities that have adopted either one.
-df %>% subset(year==2019 & BWC == 1) # 97
-df %>% subset(year==2019 & ALPR == 1) # 211
-df %>% subset(year==2019 & ALPR == 1 & BWC == 1) # 73
-df %>% subset(year==2019) %>% subset(ALPR == 1 | BWC == 1) # 235
+# 22% of cities adopted body-worn-cameras, and 46% adopted automatic license plate reader systems. But just 16% of cities had adopted both.
+df %>% subset(year==2018 & total_pop>=2500 & BWC == 1) # 103
+df %>% subset(year==2018 & total_pop>=2500 & ALPR == 1) # 209
+df %>% subset(year==2018 & total_pop>=2500 & ALPR == 1 & BWC == 1) # 76
+df %>% subset(year==2018 & total_pop>=2500) %>% subset(ALPR == 1 | BWC == 1) # 236
 
 # percent Republican quick info
-df %>% subset(year==2019 & pvoteRepub>.5) # 89 Majority-Republican cities
+df %>% subset(year==2018 & pvoteRepub>.5) # 89 Majority-Republican cities
 
 # identifying cities outside of sample parameters (e.g., those that contract out police services)
 df %>% subset(year==2018 & contract_county==1) # 154 cities
@@ -85,6 +85,15 @@ df %>% subset(year==2018 & total_pop<5000) # 54
 
 # identifying total number of cities in sample:
 df %>% subset(year==2018 & contract_county==0 & total_pop>2500)
+
+# median population of cities with BWC?
+df %>%
+  filter(year == 2018, total_pop >= 2500, !is.na(sworn_officers)) %>%
+  pull(sworn_officers) %>%
+  median()
+
+# majority Republican cities that adopted BWCs
+df %>% subset(year==2018 & pvoteRepub>.5 & BWC==1)
 ```
 
 
@@ -540,10 +549,10 @@ m2 <- lm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gi
 summary(m2)
 
 # adding institutional varibles 
-ols <- lm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap), data = df)
+ols <- lm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + complaints_per_1000, data = df)
 summary(ols)
 
-logit <- glm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini, data = df, family = "binomial")
+logit <- glm(BWC ~ pvoteRepub + prenter + log(med_hh_inc_infl_adj) + pnonmovers + gini + pnhb + diff_pnhb + phis + diff_phis + log(mean_violent_crime) + log(mean_prop_crime) + log(pop_density) + log(sworn_officers) + civ_emp_ratio + log(police_infl_adj_per_cap) + pnonmovers + gini + complaints_per_1000, data = df, family = "binomial")
 summary(logit)
 # exponentiate coefficients to get odds ratios
 tidy_output <- tidy(logit, exponentiate = TRUE)
@@ -623,7 +632,7 @@ cities_2019$summary_variable <- summary_variable
 
 # getting the rest of the IVs
 ivs <- ivs_final %>% filter(year==2018) %>%
-  select(fips, City, total_pop, pvoteRepub, pnhb,diff_pnhb,phis, diff_phis, mean_violent_crime, mean_prop_crime, sworn_officers, civ_emp_ratio, police_infl_adj_per_cap, prenter, med_hh_inc_infl_adj, pnonmovers, pop_density, gini)
+  select(fips, City, total_pop, pvoteRepub, pnhb,diff_pnhb,phis, diff_phis, mean_violent_crime, mean_prop_crime, sworn_officers, civ_emp_ratio, police_infl_adj_per_cap, prenter, med_hh_inc_infl_adj, pnonmovers, pop_density, gini, ppov100)
 
 # now joining with IVs and redoing regression
 df_final <- left_join(x = cities_2019, y = ivs, by = "fips")
